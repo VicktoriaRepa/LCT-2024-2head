@@ -150,34 +150,6 @@ class Employees:
 
     # рeдактирование слова и/или значения
     def edit_word(self):
-        self.message['text'] = ''
-        try:
-            self.tree.item(self.tree.selection())['values'][0]
-        except IndexError as e:
-            self.message['text'] = 'Выберите Сотрудника для изменения'
-            return
-        name = self.tree.item(self.tree.selection())['text']
-        old_device_date = self.tree.item(self.tree.selection())['values'][0]
-        self.edit_wind = Toplevel()
-        self.edit_wind.title = 'Изменить сотрудника'
-
-        Label(self.edit_wind, text='Прежнее слово:').grid(row=0, column=1)
-        Entry(self.edit_wind, textvariable=StringVar(self.edit_wind, value=word), state='readonly').grid(row=0,
-                                                                                                         column=2)
-
-        Label(self.edit_wind, text='Новое слово:').grid(row=1, column=1)
-        # предзаполнение поля
-        new_word = Entry(self.edit_wind, textvariable=StringVar(self.edit_wind, value=word))
-        new_word.grid(row=1, column=2)
-
-        Label(self.edit_wind, text='Прежнее значение:').grid(row=2, column=1)
-        Entry(self.edit_wind, textvariable=StringVar(self.edit_wind, value=old_meaning), state='readonly').grid(row=2,
-                                                                                                                column=2)
-
-        Label(self.edit_wind, text='Новое значение:').grid(row=3, column=1)
-        # предзаполнение поля
-        new_meaning = Entry(self.edit_wind, textvariable=StringVar(self.edit_wind, value=old_meaning))
-        new_meaning.grid(row=3, column=2)
 
         Button(self.edit_wind, text='Изменить',
                command=lambda: self.edit_records(new_word.get(), word, new_meaning.get(), old_meaning)).grid(row=4,
