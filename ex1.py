@@ -11,17 +11,6 @@ if __name__ == '__main__':
     main()
 
 
-def save():
-    # создаем книгу
-    wb = op.Workbook()
-    # делаем единственный лист активным
-    ws = wb.active
-
-    ws.title = "График работы сотрудников"
-    # Меняем цвет названия книги
-    ws.sheet_properties.tabColor = "1072BA"
-    wb.save('test.xlsx')
-
 
 
 class Excel:
@@ -63,7 +52,7 @@ class Excel:
         b0 = ttk.Button(frame, text='Расчет прогноза исследований', command=self.pz_type_study).grid(row=4, columnspan=3, sticky=W + E)
         self.message = Label(text='', fg='green')
         self.message.grid(row=5, column=0, columnspan=3, sticky=W + E)
-        b1 = ttk.Button(frame, text='Сохранить', command=save).grid(row=6, columnspan=3, sticky=W + E)
+        b1 = ttk.Button(frame, text='Сохранить', command=self.save).grid(row=6, columnspan=3, sticky=W + E)
         # таблица прогнозных значений исследований
         columns = ("#1", "#2")
         self.tree = ttk.Treeview(frame, height=10, columns=columns)
@@ -154,6 +143,7 @@ class Excel:
             self.message['text'] = 'Расчет произведен'
             self.get_study_pz()
             self.get_shedule_main()
+            self.get_shedule_main_1()
 
 
 
@@ -197,7 +187,7 @@ class Excel:
         max_src_id = max_src_id[0]  # list to tuple
         max_src_id = max_src_id[0]  # tuple to char
         max_src_id = int(max_src_id)  # char to int
-        print('max_src_id=',max_src_id)
+        #print('max_src_id=',max_src_id)
         records = self.tree.get_children()
         for element in records:
             self.tree.delete(element)
@@ -284,7 +274,7 @@ class Excel:
                 for j in range(0, len(em_rows)):
                     # считаем рабочие дни
                     parameters_wd = (max_src, max_src, (days_rows[k])[0], n1, (em_rows[j])[0], max_src, (em_rows[j])[0], (days_rows[k])[0], n1)
-                    print('em_rows0', (em_rows[j])[0])
+                    #print('em_rows0', (em_rows[j])[0])
                     query_wd = '''UPDATE tab_employees_days
                             SET work_hours_study = 
                                 (select case when emw.sum_week<40*em.bid then 
@@ -326,9 +316,169 @@ class Excel:
                                                                             and a2.date = ?
                                                                             and a1.id_type_study = ?'''
                     pz_days_p = self.run_query(query_pzd_p, parameters_pzd_p).fetchall()
-                    print('pz_days_p[0]', (pz_days_p[0])[0])
+                    #print('pz_days_p[0]', (pz_days_p[0])[0])
                     if (pz_days_p[0])[0] <=0:
                         break
+
+
+# Расчет графика по основным исследованиям с учетом отпусков, больничных и праздников(уже собранных)
+    def get_shedule_main_1(self):
+        con = sq.connect('vacation_shedule.db')
+        cursor_sh = con.cursor()
+        # получаем src_id последнего расчета
+        cursor_sh.execute('SELECT max(distinct(src_id)) FROM tab_employees_days')
+        max_src = cursor_sh.fetchall()
+        max_src = max_src[0]  # list to tuple
+        max_src = max_src[0]  # tuple to char
+        max_src = int(max_src)  # char to int
+        # получаем список основных исследований, по которому будем запускать цикл
+        cursor_st = con.cursor()
+        cursor_st.execute(
+            'SELECT distinct(id_type_study) FROM tab_employees_days where src_id = ? ORDER BY id_type_study',
+            str(max_src))
+        study_rows = cursor_st.fetchall()
+        # print(study_rows)
+        lim1 = len(study_rows)
+        list_study = list()
+        list_employees = list()
+        # print(lim1)
+        # начинаем цикл расчета по исследованиям из списка
+        for i in range(0, lim1):
+            n = study_rows[i]
+            # print(n)
+            n1 = int(n[0])
+            # print(n1)
+            list_study.insert(i, n1)
+            #определяем список дней для расчета
+            parameters = (max_src, n1)
+            query = '''select distinct(date_calendar)
+                        from tab_employees_days
+                        where src_id = ?
+                        and id_type_study = ?
+                        order by week_number asc'''
+            days_rows = self.run_query(query, parameters).fetchall()
+            for k in range(0, len(days_rows)):
+                parameters_pz_days = (max_src, max_src, (days_rows[k])[0], n1)
+
+                query_pz_days = '''select (cast(a1.vol_pcs/7 as int) + 1) - (coalesce(a3.sum_work_hours, 0)*(cast((a4.max_norma+a4.min_norma)/2/8 as int)+1)) as pz_days_per
+                                    from pz_vol_study a1
+                                    join calendar a2 on a1.week_number = a2.week_number
+                                    join (select src_id, date_calendar, id_type_study, sum(work_hours_study) sum_work_hours
+                                        from tab_employees_days
+                                        where src_id=?
+                                        group by date_calendar, id_type_study) a3 on a2.date = a3.date_calendar and a1.id_type_study = a3.id_type_study
+                                    join norma_rc a4 on a1.id_type_study = a4.id_type_study
+                                    where a1.src_id = ?
+                                    and a2.date = ?
+                                    and a1.id_type_study = ?'''
+                pz_days = self.run_query(query_pz_days, parameters_pz_days).fetchall()
+
+                #выбираем сотрудников для дальнейшего цикла
+                parameters_em = (max_src, (days_rows[k])[0], n1)
+                query_em = '''select distinct(id_employees)
+                                    from tab_employees_days em
+                                    join calendar ca on em.date_calendar
+                                    where em.src_id = ?
+                                    and em.date_calendar = ?
+                                    and em.id_type_study = ?
+                                    and em.work_hours_study is null
+                                    and pr_dop_study=1
+                                    order by id_employees'''
+                em_rows = self.run_query(query_em, parameters_em).fetchall()
+
+                #производим расчет по дням
+                for j in range(0, len(em_rows)):
+                    # считаем рабочие дни
+                    parameters_wd = (max_src, max_src, (days_rows[k])[0], n1, (em_rows[j])[0], max_src, (em_rows[j])[0], (days_rows[k])[0], n1)
+                    #print('em_rows0', (em_rows[j])[0])
+                    query_wd = '''UPDATE tab_employees_days
+                            SET work_hours_study = 
+                                (select case when emw.sum_week<40*em.bid then 
+                                    case when 40*em.bid-emw.sum_week <12 then 40*em.bid-emw.sum_week else 12 end 
+                                    else 0 end as wok_h
+                                from tab_employees_days em
+                                join calendar ca on em.date_calendar=ca.date
+                                left join (select id_employees, ca.week_number, sum(coalesce(em.work_hours_study, 0)) as sum_week
+                                    from tab_employees_days em
+                                    join calendar ca on em.date_calendar=ca.date
+                                    where src_id = ?
+                                    group by id_employees, ca.week_number
+                                    ) emw on em.id_employees=emw.id_employees and emw.week_number=ca.week_number
+                                where em.src_id = ?
+                                and em.date_calendar = ?
+                                and em.id_type_study = ?
+                                and em.work_hours_study is null
+                                and em.pr_dop_study=1
+                                and em.id_employees = ?
+                                )
+                            where src_id = ?
+                            and id_employees = ?
+                            and date_calendar = ?
+                            and id_type_study = ?'''
+                    wd_rows = self.run_query(query_wd, parameters_wd).fetchall()
+
+                    # пересчитываем оставшийся ПЗ для расчпределения специалистов
+                    parameters_pzd_p = (max_src, max_src, (days_rows[k])[0], n1)
+
+                    query_pzd_p = '''select (cast(a1.vol_pcs/7 as int) + 1) - (coalesce(a3.sum_work_hours, 0)*(cast((a4.max_norma+a4.min_norma)/2/8 as int)+1)) as pz_days_per
+                                                                            from pz_vol_study a1
+                                                                            join calendar a2 on a1.week_number = a2.week_number
+                                                                            join (select src_id, date_calendar, id_type_study, sum(work_hours_study) sum_work_hours
+                                                                                from tab_employees_days
+                                                                                where src_id=?
+                                                                                group by date_calendar, id_type_study) a3 on a2.date = a3.date_calendar and a1.id_type_study = a3.id_type_study
+                                                                            join norma_rc a4 on a1.id_type_study = a4.id_type_study
+                                                                            where a1.src_id = ?
+                                                                            and a2.date = ?
+                                                                            and a1.id_type_study = ?'''
+                    pz_days_p = self.run_query(query_pzd_p, parameters_pzd_p).fetchall()
+                    #print('pz_days_p[0]', (pz_days_p[0])[0])
+                    if (pz_days_p[0])[0] <=0:
+                        break
+
+    def save(self):
+        # создаем книгу
+        wb = op.Workbook()
+        # делаем единственный лист активным
+        ws = wb.active
+        ws.title = "График работы сотрудников"
+        # Меняем цвет названия книги
+        ws.sheet_properties.tabColor = "1072BA"
+        con = sq.connect('vacation_shedule.db')
+        cursor_sh = con.cursor()
+        # получаем src_id последнего расчета
+        cursor_sh.execute('SELECT max(distinct(src_id)) FROM tab_employees_days')
+        max_src = cursor_sh.fetchall()
+        max_src = max_src[0]  # list to tuple
+        max_src = max_src[0]  # tuple to char
+        max_src = int(max_src)  # char to int
+        parameters_ex = (str(max_src))
+        print('max_src',max_src)
+        query_ex = '''select em.src_id, ep.name, ts.name, em.date_calendar, em.date_with, em.date_to, em.bid, em.work_hours_study
+                        from tab_employees_days em
+                        join type_of_study ts on em.id_type_study = ts.id
+                        join employees1 ep on em.id_employees = ep.id
+                        where src_id = ?'''
+        row_ex = self.run_query(query_ex, parameters_ex).fetchall()
+        #print(row_ex)
+        query_ex_count = '''select count(*)
+                                from tab_employees_days em
+                                join type_of_study ts on em.id_type_study = ts.id
+                                join employees1 ep on em.id_employees = ep.id
+                                where src_id = ?'''
+        row_ex_count = self.run_query(query_ex_count, parameters_ex).fetchall()
+        ws["A1"] = "Номер расчета"
+        ws["B1"] = "ФИО"
+        ws["C1"] = "Тип исследования"
+        ws["D1"] = "Дата"
+        ws["E1"] = "Дата начала отпуска/больничного"
+        ws["F1"] = "Дата окончания отпуска/больничного"
+        ws["G1"] = "Ставка"
+        ws["H1"] = "Смена"
+        for h in range(2, (row_ex_count[0])[0]):
+            for g in range(0, 8):
+                ws.cell(row=h, column=g+1).value = (row_ex[h])[g]
+        wb.save('test.xlsx')
 
 
 
